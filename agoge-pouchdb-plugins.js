@@ -150,7 +150,11 @@ exports.upsert = async function(doc) {
 }
 
 exports.save = async function(doc, options, callback) {
-	doc.modified = new Date();
+	var parts = doc._id.split('-');	
+	doc.type = parts[0];
+	doc.id = Number(parts[1]);	
+	doc.modified = new Date();	
+	
 	var currentVersionJson = JSON.stringify(doc, null, 4);
 
 	if ( ! doc._rev ) {
