@@ -1,0 +1,26 @@
+{
+  "name": "agoge-pouchdb-plugins",
+  "version": "1.0.0",
+  "description": "My personal plugin functions to pouchdb-couchdb",
+  "main": "agoge-pouchdb-plugins.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fernandobhz/agoge-pouchdb-plugins.git"
+  },
+  "keywords": [
+    "pouchdb",
+    "plugins"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/fernandobhz/agoge-pouchdb-plugins/issues"
+  },
+  "homepage": "https://github.com/fernandobhz/agoge-pouchdb-plugins#readme",
+  "dependencies": {
+    "crypto-js": "^3.1.9-1"
+  }
+}
