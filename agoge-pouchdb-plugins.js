@@ -33,7 +33,7 @@ exports.identity = async function(type) {
 }
 
 exports.tolist = async function(ddoc, view, include_docs) {
-	var options = options {};
+	var options = {};
 	var view = view || ddoc;
 
 	options["include_docs"] = include_docs;
@@ -80,7 +80,7 @@ exports.find = async function(type, key, value, all, include_docs) {
 	if (value) options.key.push(value);
 
 	
-	this.upsert({
+	await this.upsert({
 		_id: "_design/find" ,
 		views: {
 			find: {
