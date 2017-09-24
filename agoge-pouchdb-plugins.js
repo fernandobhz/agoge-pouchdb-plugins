@@ -32,11 +32,12 @@ exports.identity = async function(type) {
 		throw new Error('sigedin/lastid at expected 0 or 1 found: ' + ret.rows.length);
 }
 
-exports.tolist = async function(ddoc, view, include_docs) {
-	var options = {};
+exports.tolist = async function(ddoc, view, options) {
+	var options = options || {};
 	var view = view || ddoc;
 
-	options["include_docs"] = include_docs;
+	if ( options["include_docs"] !== false)
+		options["include_docs"] = true;
 
 	var queryResults = await this.query(ddoc + '/' + view, options);
 
@@ -49,10 +50,12 @@ exports.tolist = async function(ddoc, view, include_docs) {
 	return list;
 }
 
-exports.scalar = async function(ddoc, view) {
-	var options = {};
+exports.scalar = async function(ddoc, view, options) {
+	var options = options || {};
 
-	options["include_docs"] = true;
+	if ( options["include_docs"] !== false)
+		options["include_docs"] = true;
+	
 	options["limit"] = 1;
 
 	var ret = await this.query(ddoc + '/' + view, options);
@@ -74,11 +77,12 @@ exports.find = async function(type, key, value, all, include_docs) {
 	var options = {
 		key: []
 	};	
+		
+	options.include_docs = include_docs;
 
 	if (type) options.key.push(type);
 	if (key) options.key.push(key);
 	if (value) options.key.push(value);
-
 	
 	await this.upsert({
 		_id: "_design/find" ,
@@ -102,9 +106,9 @@ exports.find = async function(type, key, value, all, include_docs) {
 	});
 
 	if (all)
-		return await this.tolist('find', 'find', include_docs);
+		return await this.tolist('find', 'find', options);
 	else
-		return await this.scalar('find', 'find');
+		return await this.scalar('find', 'find', options);
 	
 }
 
