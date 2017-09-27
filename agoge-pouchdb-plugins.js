@@ -1,7 +1,7 @@
 var CryptoJS = require('crypto-js');
 
 exports.identity = async function(type) {	
-	db.upsert({
+	await db.upsert({
 		_id: "_design/identity",
 		views: {
 			identity: {
@@ -153,11 +153,11 @@ exports.upsert = async function(doc) {
 	}
 }
 
-exports.save = async function(doc, options, callback) {
+exports.save = async function(doc) {
 	var parts = doc._id.split('-');	
 	doc.type = parts[0];
-	doc.id = Number(parts[1]);	
-	doc.modified = new Date();	
+	doc.id = Number(parts[1]) || parts[1];
+	doc.modified = new Date();
 	
 	var currentVersionJson = JSON.stringify(doc, null, 4);
 
@@ -170,7 +170,14 @@ exports.save = async function(doc, options, callback) {
 		var docRevGuid = docRevisionParts[1];
 	}
 
-	doc._attachments = doc._attachments || {};
+		
+	try {
+		var old = await db.get(doc._id);
+	} catch (err) {
+		var old = { _attachments: {} };	
+	}
+	
+	doc._attachments = old._attachments;	
 
 	var an = 'revisions/' + docRevNo + '.json';
 
