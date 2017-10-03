@@ -97,6 +97,8 @@ exports.find = async function(type, key, value, all, include_docs) {
 					emit([type]);
 					emit([type, Number(id)]);
 
+					var key;
+					
 					for (key in doc) {
 					  emit([type, key, doc[key]]);
 					}
