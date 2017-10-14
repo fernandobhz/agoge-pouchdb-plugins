@@ -95,7 +95,12 @@ exports.find = async function(type, key, value, all, include_docs) {
 					var id = doc._id.slice(p+1, doc._id.length);
 
 					emit([type]);
-					emit([type, Number(id)]);
+					
+					if ( isNaN(id) ) {
+						emit([type, id]);
+					} else {
+						emit([type, Number(id)]);
+					}
 
 					var key;
 					
