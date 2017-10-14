@@ -184,7 +184,7 @@ exports.save = async function(doc) {
 		var old = { _attachments: {} };	
 	}
 	
-	doc._attachments = old._attachments;	
+	doc._attachments = old._attachments || {};	
 
 	var an = 'revisions/' + docRevNo + '.json';
 
