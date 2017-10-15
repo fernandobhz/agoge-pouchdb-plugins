@@ -1,24 +1,52 @@
 var CryptoJS = require('crypto-js');
 
-exports.identity = async function(type) {	
-	await db.upsert({
-		_id: "_design/identity",
-		views: {
-			identity: {
-				map: function (doc) {
-					var p = doc._id.indexOf('-');
-					if ( p < 0 ) return;
-					var type = doc._id.slice(0, p);
-					var id = Number(doc._id.slice(p+1, doc._id.length));
+var identityMapReduce = {
+	_id: "_design/identity",
+	views: {
+		identity: {
+			map: function (doc) {
+				var p = doc._id.indexOf('-');
+				if ( p < 0 ) return;
+				var type = doc._id.slice(0, p);
+				var id = Number(doc._id.slice(p+1, doc._id.length));
 
-					emit(type, id);
-				}.toString(),
-				reduce: function (keys, values, rereduce) {
-					return values.sort(function(a,b) {return a-b}).reverse()[0];
-				}.toString()
-			}
+				emit(type, id);
+			}.toString(),
+			reduce: function (keys, values, rereduce) {
+				return values.sort(function(a,b) {return a-b}).reverse()[0];
+			}.toString()
 		}
-	});
+	}
+}
+
+var whereMapReduce = {
+	_id: "_design/where" ,
+	views: {
+		where: {
+			map: function(doc) {
+				var p = doc._id.indexOf('-');
+				if ( p < 0 ) return;
+				var type = doc._id.slice(0, p);
+				var id = doc._id.slice(p+1, doc._id.length);
+
+				emit([type]);
+				
+				if ( isNaN(id) ) {
+					emit([type, id]);
+				} else {
+					emit([type, Number(id)]);
+				}
+			
+				for (key in doc) {
+				  emit([type, key, doc[key]]);
+				}
+			}.toString()
+		}
+	}
+};
+
+exports.identity = async function(type) {	
+	await db.upsert(identityMapReduce);
 	
 	var ret = await this.query('identity/identity', {key: type, group: true});
 
@@ -71,52 +99,34 @@ exports.scalar = async function(ddoc, view, options) {
 	}
 }
 
-exports.find = async function(type, key, value, all, include_docs) {
-	var all = all || false;
-	
+exports.find = async function(type, key, value, include_docs) {
 	var options = {
-		key: []
-	};	
-		
-	options.include_docs = include_docs;
+		key: [],
+		include_docs: include_docs || true
+	};		
 
 	if (type) options.key.push(type);
 	if (key) options.key.push(key);
 	if (value) options.key.push(value);
 	
-	await this.upsert({
-		_id: "_design/find" ,
-		views: {
-			find: {
-				map: function(doc) {
-					var p = doc._id.indexOf('-');
-					if ( p < 0 ) return;
-					var type = doc._id.slice(0, p);
-					var id = doc._id.slice(p+1, doc._id.length);
-
-					emit([type]);
-					
-					if ( isNaN(id) ) {
-						emit([type, id]);
-					} else {
-						emit([type, Number(id)]);
-					}
-
-					var key;
-					
-					for (key in doc) {
-					  emit([type, key, doc[key]]);
-					}
-				}.toString()
-			}
-		}
-	});
-
-	if (all)
-		return await this.tolist('find', 'find', options);
-	else
-		return await this.scalar('find', 'find', options);
+	await this.upsert(whereMapReduce);
 	
+	return await this.scalar('where', 'where', options);
+}
+
+exports.filter = async function(type, key, value, include_docs) {
+	var options = {
+		key: [],
+		include_docs: include_docs || true
+	};	
+		
+	if (type) options.key.push(type);
+	if (key) options.key.push(key);
+	if (value) options.key.push(value);
+	
+	await this.upsert(whereMapReduce);
+	
+	return await this.tolist('where', 'where', options);		
 }
 
 exports.upsert = async function(doc) {
@@ -220,4 +230,3 @@ exports.update = async function(fn) {
 	//console.log('Atualizando ' + mods.length + ' documentos');
 	await this.bulkDocs(mods);
 };
-
