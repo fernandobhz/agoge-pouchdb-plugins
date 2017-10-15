@@ -30,13 +30,13 @@ var whereMapReduce = {
 				var id = doc._id.slice(p+1, doc._id.length);
 
 				emit([type]);
-				
+
 				if ( isNaN(id) ) {
 					emit([type, id]);
 				} else {
 					emit([type, Number(id)]);
 				}
-			
+
 				for (key in doc) {
 				  emit([type, key, doc[key]]);
 				}
@@ -45,9 +45,9 @@ var whereMapReduce = {
 	}
 };
 
-exports.identity = async function(type) {	
+exports.identity = async function(type) {
 	await db.upsert(identityMapReduce);
-	
+
 	var ret = await this.query('identity/identity', {key: type, group: true});
 
 	if (ret.rows.length == 0)
@@ -83,7 +83,7 @@ exports.scalar = async function(ddoc, view, options) {
 
 	if ( options["include_docs"] !== false)
 		options["include_docs"] = true;
-	
+
 	options["limit"] = 1;
 
 	var ret = await this.query(ddoc + '/' + view, options);
@@ -103,31 +103,48 @@ exports.find = async function(type, key, value, include_docs) {
 	var options = {
 		key: [],
 		include_docs: include_docs || true
-	};		
+	};
 
 	if (type) options.key.push(type);
 	if (key) options.key.push(key);
 	if (value) options.key.push(value);
-	
+
 	await this.upsert(whereMapReduce);
-	
+
 	return await this.scalar('where', 'where', options);
 }
 
-exports.filter = async function(type, key, value, include_docs) {
+exports.filter = function(type, key, value, include_docs) {
 	var options = {
 		key: [],
 		include_docs: include_docs || true
-	};	
-		
+	};
+
 	if (type) options.key.push(type);
 	if (key) options.key.push(key);
 	if (value) options.key.push(value);
-	
-	await this.upsert(whereMapReduce);
-	
-	return await this.tolist('where', 'where', options);		
+
+	var plugin = this;
+
+	return new function() {
+		this.take = async function(n, m) {
+			await plugin.upsert(whereMapReduce);
+
+			if ( n ) {
+				options.limit = n;
+			}
+
+			if ( m ) {
+				options.start_key = m;
+			}
+
+			return await plugin.tolist('where', 'where', options);
+		}
+
+		this.all = this.take;
+	}
 }
+
 
 exports.upsert = async function(doc) {
 	module.upserted = module.upserted || [];
@@ -171,11 +188,11 @@ exports.upsert = async function(doc) {
 }
 
 exports.save = async function(doc) {
-	var parts = doc._id.split('-');	
+	var parts = doc._id.split('-');
 	doc.type = parts[0];
 	doc.id = Number(parts[1]) || parts[1];
 	doc.modified = new Date();
-	
+
 	var currentVersionJson = JSON.stringify(doc, null, 4);
 
 	if ( ! doc._rev ) {
@@ -187,14 +204,14 @@ exports.save = async function(doc) {
 		var docRevGuid = docRevisionParts[1];
 	}
 
-		
+
 	try {
 		var old = await db.get(doc._id);
 	} catch (err) {
-		var old = { _attachments: {} };	
+		var old = { _attachments: {} };
 	}
-	
-	doc._attachments = old._attachments || {};	
+
+	doc._attachments = old._attachments || {};
 
 	var an = 'revisions/' + docRevNo + '.json';
 
