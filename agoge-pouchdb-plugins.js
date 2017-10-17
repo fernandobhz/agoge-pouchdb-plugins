@@ -140,8 +140,23 @@ exports.filter = function(type, key, value, include_docs) {
 
 			return await plugin.tolist('where', 'where', options);
 		}
-
+		
 		this.all = this.take;
+				
+		this.page = async function(pageNo, pageSize) {
+			pageNo = pageNo || 1;
+			pageSize = pageSize || 100;
+			
+			await plugin.upsert(whereMapReduce);
+
+			if ( pageNo > 1 ) {
+				options.skip = pageSize * ( pageNo - 1 );
+			}
+			
+			options.limit = pageSize;			
+
+			return await plugin.tolist('where', 'where', options);
+		}
 	}
 }
 
