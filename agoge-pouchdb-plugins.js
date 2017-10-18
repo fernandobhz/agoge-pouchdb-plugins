@@ -220,10 +220,8 @@ exports.save = async function(doc) {
 	}
 
 	var o = JSON.parse(JSON.stringify(doc));
-	o._id = o._id.replace('-', '@') + '.' + docRevNo;	
+	o._id = o._id.replace('-', '@') + '.' + (Number(docRevNo)+1);
 	delete o._rev;
-	delete o.id;
-	delete o.type;
 	await db.put(o);
 
 	var ret = await this.put(doc);
