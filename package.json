@@ -1,6 +1,6 @@
 {
   "name": "agoge-pouchdb-plugins",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "My personal plugin functions to pouchdb-couchdb",
   "main": "agoge-pouchdb-plugins.js",
   "scripts": {

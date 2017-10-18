@@ -99,7 +99,7 @@ exports.scalar = async function(ddoc, view, options) {
 	}
 }
 
-exports.find = async function(type, key, value, include_docs) {
+exports.first = async function(type, key, value, include_docs) {
 	var options = {
 		key: [],
 		include_docs: include_docs || true
@@ -219,21 +219,12 @@ exports.save = async function(doc) {
 		var docRevGuid = docRevisionParts[1];
 	}
 
-
-	try {
-		var old = await db.get(doc._id);
-	} catch (err) {
-		var old = { _attachments: {} };
-	}
-
-	doc._attachments = old._attachments || {};
-
-	var an = 'revisions/' + docRevNo + '.json';
-
-	doc._attachments[an] = {
-		"content_type": "application/json",
-		data: new Buffer(currentVersionJson)
-	}
+	var o = JSON.parse(JSON.stringify(doc));
+	o._id = o._id.replace('-', '@') + '.' + docRevNo;	
+	delete o._rev;
+	delete o.id;
+	delete o.type;
+	await db.put(o);
 
 	var ret = await this.put(doc);
 	return ret;
@@ -262,3 +253,4 @@ exports.update = async function(fn) {
 	//console.log('Atualizando ' + mods.length + ' documentos');
 	await this.bulkDocs(mods);
 };
+
