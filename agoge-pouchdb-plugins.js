@@ -161,15 +161,17 @@ exports.filter = function(type, key, value, include_docs) {
 }
 
 
-exports.upsert = async function(doc) {
-	module.upserted = module.upserted || [];
+exports.upsert = async function(doc, byPassSingleton = false) {
+	module.upserted = module.upserte || [];
 
-	var docHash = CryptoJS.MD5(JSON.stringify(doc)).toString();
+	if ( ! byPassSingleton )  {
+		var docHash = CryptoJS.MD5(JSON.stringify(doc)).toString();
 
-	if (module.upserted.includes(docHash))
-		return doc;
+		if (module.upserted.includes(docHash))
+			return doc;
 
-	module.upserted.push(docHash);
+		module.upserted.push(docHash);
+	}
 
 	try {
 		delete doc._rev;
@@ -203,11 +205,70 @@ exports.upsert = async function(doc) {
 }
 
 exports.save = async function(doc) {
+	var doc = await this.standardizeDoc(doc);
+	var rev = await this.storeRevision(doc);
+	var ret = await this.put(doc);
+	return ret;
+}
+
+exports.update = async function(fn) {
+	var result = await this.allDocs({
+		include_docs: true
+	});
+
+	var mods = [];
+
+	for ( row of result.rows ) {
+		var x = row.doc;
+
+		var before = JSON.stringify(x);
+
+		fn(x);
+
+		var after = JSON.stringify(x);
+
+		if (before != after) {
+			await this.standardizeDoc(x);
+			await this.storeRevision(x);	
+			mods.push(x);
+		}
+	}
+
+	//console.log('Atualizando ' + mods.length + ' documentos');
+	await this.bulkDocs(mods);
+};
+
+exports.standardizeDoc = async function(doc) {
 	var parts = doc._id.split('-');
 	doc.type = parts[0];
 	doc.id = Number(parts[1]) || parts[1];
 	doc.modified = new Date();
+	
+	try {
+		var meta = await this.get('meta-' + doc.type);
+		
+		var descKey;
 
+		for (key in meta) {
+			if ( meta[key].type == "description" ) {
+				var descKey = key;
+				break;
+			}
+		}
+		
+		if ( descKey )			
+			doc.desc = doc[descKey];
+		else
+			doc.desc = doc.type.toUpperCase() + ': ' + doc.id;
+		
+	} catch(err) {		
+		doc.desc = doc.type.toLowerCase() + ': ' + doc.id;
+	}
+	
+	return doc;
+}
+
+exports.storeRevision = async function(doc) {
 	var currentVersionJson = JSON.stringify(doc, null, 4);
 
 	if ( ! doc._rev ) {
@@ -222,33 +283,7 @@ exports.save = async function(doc) {
 	var o = JSON.parse(JSON.stringify(doc));
 	o._id = o._id.replace('-', '@') + '.' + (Number(docRevNo)+1);
 	delete o._rev;
-	await db.put(o);
-
-	var ret = await this.put(doc);
+	
+	var ret = await db.upsert(o);	
 	return ret;
 }
-
-exports.update = async function(fn) {
-	var result = await this.allDocs({
-		include_docs: true
-	});
-
-	var mods = [];
-
-	result.rows.forEach(function(row) {
-		var x = row.doc;
-
-		var before = JSON.stringify(x);
-
-		fn(x);
-
-		var after = JSON.stringify(x);
-
-		if (before != after)
-			mods.push(x);
-	});
-
-	//console.log('Atualizando ' + mods.length + ' documentos');
-	await this.bulkDocs(mods);
-};
-
