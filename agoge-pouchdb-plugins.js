@@ -46,7 +46,7 @@ var whereMapReduce = {
 };
 
 exports.identity = async function(type) {
-	await db.upsert(identityMapReduce);
+	await this.upsert(identityMapReduce);
 
 	var ret = await this.query('identity/identity', {key: type, group: true});
 
@@ -283,7 +283,10 @@ exports.storeRevision = async function(doc) {
 	var o = JSON.parse(JSON.stringify(doc));
 	o._id = o._id.replace('-', '@') + '.' + (Number(docRevNo)+1);
 	delete o._rev;
+	o.type = null;
+	o.id = null;
 	
-	var ret = await db.upsert(o);	
+	var ret = await this.upsert(o);	
 	return ret;
 }
+
