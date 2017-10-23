@@ -45,6 +45,73 @@ var whereMapReduce = {
 	}
 };
 
+var listGlobalFields = {
+	_id: "_design/gfields" ,
+	views: {
+		gfields: {
+			map: function(doc) {
+				for (key in doc) {
+					if ( key != 'type' && key.slice(0,1) != '_' ) {
+						emit(key);
+					}
+				}
+			}.toString()
+			, reduce: "_count"
+		}
+	}
+};
+
+exports.createMangoTypeIndex = async function() {
+	var data = await db.createIndex({
+		index: {
+		  fields: ['type']
+		}
+		, name: 'type'
+		, ddoc: 'type'
+		, type: 'json'
+	});
+	
+	this.find({selector: {type: 'meta'}});
+	
+	console.log("MANGO 'type' INDEX: " + JSON.stringify(data.result));
+}
+
+exports.createMangoIndex = async function(name) {
+	var data = await db.createIndex({
+		index: {
+		  fields: ['type', name]
+			, name: 'type-' + name
+			, ddoc: 'type-' + name
+			, type: 'json'
+		}
+	});
+	
+	var o = {type: 'meta' };
+	o[name] = 0;
+	this.find({selector: o});
+
+	console.log("MANGO '" + name + "' INDEX: " + JSON.stringify(data.result));
+}
+
+exports.init = async function() {
+	await this.upsert(listGlobalFields);
+
+	await this.createMangoTypeIndex();
+	await this.createMangoIndex('desc');
+
+	var gfields = await this.query('gfields', {
+		reduce: true
+		, group: true
+	});
+
+	for ( row of gfields.rows ) {
+		await this.createMangoIndex(row.key);
+	}
+	
+	console.log('db.init done');
+}
+
+
 exports.identity = async function(type) {
 	await this.upsert(identityMapReduce);
 
@@ -140,20 +207,20 @@ exports.filter = function(type, key, value, include_docs) {
 
 			return await plugin.tolist('where', 'where', options);
 		}
-		
+
 		this.all = this.take;
-				
+
 		this.page = async function(pageNo, pageSize) {
 			pageNo = pageNo || 1;
 			pageSize = pageSize || 100;
-			
+
 			await plugin.upsert(whereMapReduce);
 
 			if ( pageNo > 1 ) {
 				options.skip = pageSize * ( pageNo - 1 );
 			}
-			
-			options.limit = pageSize;			
+
+			options.limit = pageSize;
 
 			return await plugin.tolist('where', 'where', options);
 		}
@@ -229,7 +296,7 @@ exports.update = async function(fn) {
 
 		if (before != after) {
 			await this.standardizeDoc(x);
-			await this.storeRevision(x);	
+			await this.storeRevision(x);
 			mods.push(x);
 		}
 	}
@@ -243,10 +310,10 @@ exports.standardizeDoc = async function(doc) {
 	doc.type = parts[0];
 	doc.id = Number(parts[1]) || parts[1];
 	doc.modified = new Date();
-	
+
 	try {
 		var meta = await this.get('meta-' + doc.type);
-		
+
 		var descKey;
 
 		for (key in meta) {
@@ -255,16 +322,16 @@ exports.standardizeDoc = async function(doc) {
 				break;
 			}
 		}
-		
-		if ( descKey )			
+
+		if ( descKey )
 			doc.desc = doc[descKey];
 		else
 			doc.desc = doc.type.toUpperCase() + ': ' + doc.id;
-		
-	} catch(err) {		
+
+	} catch(err) {
 		doc.desc = doc.type.toLowerCase() + ': ' + doc.id;
 	}
-	
+
 	return doc;
 }
 
@@ -285,8 +352,8 @@ exports.storeRevision = async function(doc) {
 	delete o._rev;
 	o.type = null;
 	o.id = null;
-	
-	var ret = await this.upsert(o);	
+
+	var ret = await this.upsert(o);
 	return ret;
 }
 
