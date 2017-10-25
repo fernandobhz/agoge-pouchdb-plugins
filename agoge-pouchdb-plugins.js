@@ -61,10 +61,72 @@ var listGlobalFields = {
 	}
 };
 
+var listGlobalTypes = {
+	_id: "_design/gtypes" ,
+	views: {
+		gtypes: {
+			map: function(doc) {
+				if (doc.type) emit(doc.type);
+			}.toString()
+			, reduce: "_count"
+		}
+	}
+};
+
+
+exports.cleanDeletedTypes = async function() {
+	console.log('cleanDeletedTypes started');
+
+	await this.upsert(listGlobalTypes);
+
+	var gtypes = await this.query('gtypes', {
+		reduce: true
+		, group: true
+	});
+	var globalTypes = gtypes.rows.map(x=>x.key);
+
+	console.log('global-types: ' + JSON.stringify(globalTypes) + '\n');
+
+	var metas = await db.filter('meta').all();
+	var metaTypes = metas.map(x=>x.id);
+
+	console.log('meta-types: ' + JSON.stringify(metaTypes) + '\n');
+
+	for ( globalType of globalTypes ) {
+
+		if ( ! metaTypes.includes(globalType) && globalType != 'meta' ) {
+
+			var lista = await this.filter(globalType).all();
+
+			for ( item of lista ) {
+				item._deleted = true;
+			}
+
+			console.log('deleting ' + globalType + ' with ' + lista.length + ' docs');
+
+			while ( lista.length > 0 ) {
+				let agora = [];
+
+				for ( let i = 0; i < (lista.length > 1000 ? 1000 : lista.length); i++) {
+					agora.push(lista.shift());
+				}
+
+				await this.bulkDocs(agora);
+			}
+
+			console.log(globalType + ' done' + '\n');
+		}
+
+	}
+
+	console.log('cleanDeletedTypes done' + '\n');
+
+}
+
 exports.buildMangoIndex = async function(name) {
 	var o = {type: 'meta' };
 	if ( name ) o[name] = 0;
-	
+
 	while (true) {
 		try {
 			await this.find({selector: o});
@@ -86,7 +148,7 @@ exports.createMangoTypeIndex = async function() {
 		, ddoc: 'type'
 		, type: 'json'
 	});
-	
+
 	this.buildMangoIndex();
 	console.log("MANGO 'type' INDEX: " + JSON.stringify(data.result));
 }
@@ -100,9 +162,9 @@ exports.createMangoIndex = async function(name) {
 			, type: 'json'
 		}
 	});
-	
+
 	this.buildMangoIndex(name);
-	
+
 	console.log("MANGO '" + name + "' INDEX: " + JSON.stringify(data.result));
 }
 
@@ -120,7 +182,7 @@ exports.init = async function() {
 	for ( row of gfields.rows ) {
 		await this.createMangoIndex(row.key);
 	}
-	
+
 	console.log('db.init done');
 }
 
