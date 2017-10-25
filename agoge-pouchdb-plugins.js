@@ -61,6 +61,22 @@ var listGlobalFields = {
 	}
 };
 
+exports.buildMangoIndex = async function(name) {
+	var o = {type: 'meta' };
+	if ( name ) o[name] = 0;
+	
+	while (true) {
+		try {
+			await this.find({selector: o});
+			console.log(name + '  index build successfully');
+			break;
+		} catch(err) {
+			console.log('couchdb is busy right now, delaying index building of: '  + name);
+			await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*10*Math.random())});
+		}
+	}
+}
+
 exports.createMangoTypeIndex = async function() {
 	var data = await db.createIndex({
 		index: {
@@ -71,8 +87,7 @@ exports.createMangoTypeIndex = async function() {
 		, type: 'json'
 	});
 	
-	this.find({selector: {type: 'meta'}});
-	
+	this.buildMangoIndex();
 	console.log("MANGO 'type' INDEX: " + JSON.stringify(data.result));
 }
 
@@ -86,10 +101,8 @@ exports.createMangoIndex = async function(name) {
 		}
 	});
 	
-	var o = {type: 'meta' };
-	o[name] = 0;
-	this.find({selector: o});
-
+	this.buildMangoIndex(name);
+	
 	console.log("MANGO '" + name + "' INDEX: " + JSON.stringify(data.result));
 }
 
