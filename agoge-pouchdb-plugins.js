@@ -285,7 +285,7 @@ exports.buildMangoIndex = async function(fields) {
 			console.log(fields.join('-')+ '  index build successfully');
 			break;
 		} catch(err) {
-			console.log('couchdb is busy right now, delaying index building of: '  + fields.join('-'));
+			console.log('couchdb is busy right now, delaying index building of: '  + fields.join('-') + ' - ' + err.message);
 			await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*3*Math.random())});
 		}
 	}
