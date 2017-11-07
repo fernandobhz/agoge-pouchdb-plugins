@@ -37,7 +37,7 @@ var whereMapReduce = {
 					emit([type, Number(id)]);
 				}
 
-				for (key in doc) {
+				for ( var key in doc ) {
 				  emit([type, key, doc[key]]);
 				}
 			}.toString()
@@ -50,7 +50,7 @@ var listGlobalFields = {
 	views: {
 		gfields: {
 			map: function(doc) {
-				for (key in doc) {
+				for ( var key in doc ) {
 					if ( key != 'type' && key.slice(0,1) != '_' ) {
 						emit(key);
 					}
@@ -73,6 +73,153 @@ var listGlobalTypes = {
 	}
 };
 
+var ftsView = {
+	_id: "_design/fts" ,
+	views: {
+		fts: {
+			map: function(doc) {
+				try {
+					var p = doc._id.indexOf('-');
+					if ( p < 0 ) return;
+					var type = doc._id.slice(0, p);
+					var id = doc._id.slice(p+1, doc._id.length);
+
+					if ( type == 'meta' ) return;
+
+					var fx = function(o, prev) {
+						prev = prev || '';
+
+						for ( var key in o ) {
+							if ( key[0] == '_' ) continue;
+							var classe = Object.prototype.toString.call(o[key]);
+
+							if ( classe == '[object Object]' || classe == '[object Array]') {
+								fx(o[key], prev + '.' + key);
+							} else if ( o[key] ) {
+								var str = o[key].toString();
+
+								var words = str
+									.replace(/<(.|\n)*?>/ig, "")
+									.replace(/[^-a-z0-9_@#$\s]/ig, "")
+									.toLowerCase()
+									.split(' ')
+								;
+
+								for ( var i = 0; i < words.length; i++ ) {
+									var word = words[i];
+
+									var highlighting = [];
+									highlighting.push((prev ? prev + '.' : '') + key + ': ');
+
+									if ( words[i-3] ) highlighting.push(words[i-3]);
+									if ( words[i-2] ) highlighting.push(words[i-2]);
+									if ( words[i-1] ) highlighting.push(words[i-1]);
+
+									highlighting.push('<strong>' + word + '</strong>');
+
+									if ( words[i+1] ) highlighting.push(words[i+1]);
+									if ( words[i+2] ) highlighting.push(words[i+2]);
+									if ( words[i+3] ) highlighting.push(words[i+3]);
+
+									emit(word, {
+										type: doc.type
+										, id: doc.id
+										, desc: doc.desc
+										, highlighting: highlighting.join(' ')
+									});
+								}
+							}
+						}
+
+					}
+
+					fx(doc);
+				} catch(err) {
+					emit(null, err);
+				}
+			}.toString()
+		}
+	}
+};
+
+var metaMetaDoc = {
+	_id: 'meta-meta'
+	, type: 'meta'
+	, id: 'meta'
+	, description: 'Meta'
+	, lastDatabaseMaintence: new Date(0)
+}
+
+exports.maintence = async function(force = false) {
+	var mm = await this.getsert(metaMetaDoc);
+
+	if ( ! mm.lastDatabaseMaintence ) {
+		mm.lastDatabaseMaintence = new Date(0);
+		mm = await this.upget(mm);
+	}
+
+	var day = 1000 * 3600 * 24;
+	var now = new Date();
+	var last = new Date(mm.lastDatabaseMaintence)
+
+	var interval = now.getTime() - last.getTime();
+
+	if ( interval < day && force == false) {
+		console.log('DB: ' + last);
+		return;
+	} else {
+		mm.lastDatabaseMaintence = now;
+		await this.save(mm);
+	}
+
+
+
+	console.log('D A T A B A S E  M A I N T E N C E  S T A R T');
+
+	await this.upsert(identityMapReduce);
+	await this.buildViewIndex('identity');
+
+	await this.upsert(whereMapReduce);
+	await this.buildViewIndex('where');
+
+	await this.upsert(ftsView);
+	await this.buildViewIndex('fts');
+
+
+	await this.upsert(listGlobalFields);
+	await this.buildViewIndex('gfields');
+
+	await this.createMangoIndex(['type']);
+	await this.createMangoIndex(['type', 'desc']);
+
+	var gfields = await this.query('gfields', {
+		reduce: true
+		, group: true
+	});
+
+	for ( row of gfields.rows ) {
+		await this.createMangoIndex(['type', row.key]);
+	}
+
+	console.log();
+	await this.cleanDeletedTypes();
+
+	console.log('D A T A B A S E  M A I N T E N C E  D O N E');
+}
+
+
+exports.buildViewIndex = async function(name) {
+	while (true) {
+		try {
+			await this.query(name, {key: 0, limit: 1});
+			console.log(name + '  index build successfully');
+			break;
+		} catch(err) {
+			console.log('couchdb is busy right now, delaying index building of: '  + name);
+			await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*10*Math.random())});
+		}
+	}
+}
 
 exports.cleanDeletedTypes = async function() {
 	console.log('cleanDeletedTypes started');
@@ -83,11 +230,13 @@ exports.cleanDeletedTypes = async function() {
 		reduce: true
 		, group: true
 	});
+
 	var globalTypes = gtypes.rows.map(x=>x.key);
 
 	console.log('global-types: ' + JSON.stringify(globalTypes) + '\n');
 
-	var metas = await db.filter('meta').all();
+	var metas = await this.filter('meta').all();
+
 	var metaTypes = metas.map(x=>x.id);
 
 	console.log('meta-types: ' + JSON.stringify(metaTypes) + '\n');
@@ -123,72 +272,57 @@ exports.cleanDeletedTypes = async function() {
 
 }
 
-exports.buildMangoIndex = async function(name) {
-	var o = {type: 'meta' };
-	if ( name ) o[name] = 0;
+exports.buildMangoIndex = async function(fields) {
+	var o = {};
+
+	for ( var key in fields ) {
+		o[key] = 0;
+	}
 
 	while (true) {
 		try {
 			await this.find({selector: o});
-			console.log(name + '  index build successfully');
+			console.log(fields.join('-')+ '  index build successfully');
 			break;
 		} catch(err) {
-			console.log('couchdb is busy right now, delaying index building of: '  + name);
-			await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*10*Math.random())});
+			console.log('couchdb is busy right now, delaying index building of: '  + fields.join('-'));
+			await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*3*Math.random())});
 		}
 	}
 }
 
-exports.createMangoTypeIndex = async function() {
-	var data = await db.createIndex({
+exports.createMangoIndex = async function(fields) {
+	var data = await this.createIndex({
 		index: {
-		  fields: ['type']
-		}
-		, name: 'type'
-		, ddoc: 'type'
-		, type: 'json'
-	});
-
-	this.buildMangoIndex();
-	console.log("MANGO 'type' INDEX: " + JSON.stringify(data.result));
-}
-
-exports.createMangoIndex = async function(name) {
-	var data = await db.createIndex({
-		index: {
-		  fields: ['type', name]
-			, name: 'type-' + name
-			, ddoc: 'type-' + name
+		  fields: fields
+			, name: fields.join('-')
+			, ddoc: fields.join('-')
 			, type: 'json'
 		}
 	});
 
-	this.buildMangoIndex(name);
-
-	console.log("MANGO '" + name + "' INDEX: " + JSON.stringify(data.result));
-}
-
-exports.init = async function() {
-	await this.upsert(listGlobalFields);
-
-	await this.createMangoTypeIndex();
-	await this.createMangoIndex('desc');
-
-	var gfields = await this.query('gfields', {
-		reduce: true
-		, group: true
-	});
-
-	for ( row of gfields.rows ) {
-		await this.createMangoIndex(row.key);
+	if (data.result != "exists") {
+		console.log('bulding ' + fields.join('-') + ' index');
+		await this.buildMangoIndex(fields);
 	}
 
-	console.log('db.init done');
+	console.log("MANGO '" + fields.join('-') + "' INDEX: " + JSON.stringify(data.result));
 }
 
+
+exports.fts = function(key) {
+	new Promise(async (resolve, reject) => {
+		await this.upsert(ftsView);
+		await this.buildViewIndex('fts');
+		resolve();
+	});
+
+	return this.where('fts', {key: key.toLowerCase(), include_docs: false});
+}
 
 exports.identity = async function(type) {
 	await this.upsert(identityMapReduce);
+	await this.buildViewIndex('identity');
 
 	var ret = await this.query('identity/identity', {key: type, group: true});
 
@@ -202,149 +336,157 @@ exports.identity = async function(type) {
 		throw new Error('sigedin/lastid at expected 0 or 1 found: ' + ret.rows.length);
 }
 
-exports.tolist = async function(ddoc, view, options) {
-	var options = options || {};
-	var view = view || ddoc;
+exports.where = function(ddocView, options) {
+	new Promise(async (resolve, reject) => {
+		await this.upsert(whereMapReduce);
+		await this.buildViewIndex('where');
+	});
 
-	if ( options["include_docs"] !== false)
-		options["include_docs"] = true;
-
-	var queryResults = await this.query(ddoc + '/' + view, options);
-
-	var list = [];
-
-	for (resultRow of queryResults.rows) {
-		list.push(resultRow.doc);
-	}
-
-	return list;
-}
-
-exports.scalar = async function(ddoc, view, options) {
 	var options = options || {};
 
-	if ( options["include_docs"] !== false)
-		options["include_docs"] = true;
-
-	options["limit"] = 1;
-
-	var ret = await this.query(ddoc + '/' + view, options);
-
-	if (ret.rows.length == 0)
-		return;
-
-	else
-
-	if (ret.rows.length == 1) {
-		var row = ret.rows[0];
-		return row.doc || row.value;
+	if ( options.include_docs !== false ) {
+		options.include_docs = true;
 	}
-}
-
-exports.first = async function(type, key, value, include_docs) {
-	var options = {
-		key: [],
-		include_docs: include_docs || true
-	};
-
-	if (type) options.key.push(type);
-	if (key) options.key.push(key);
-	if (value) options.key.push(value);
-
-	await this.upsert(whereMapReduce);
-
-	return await this.scalar('where', 'where', options);
-}
-
-exports.filter = function(type, key, value, include_docs) {
-	var options = {
-		key: [],
-		include_docs: include_docs || true
-	};
-
-	if (type) options.key.push(type);
-	if (key) options.key.push(key);
-	if (value) options.key.push(value);
 
 	var plugin = this;
 
 	return new function() {
 		this.take = async function(n, m) {
-			await plugin.upsert(whereMapReduce);
+			if ( n ) options.limit = n;
+			if ( m ) options.start_key = m;
 
-			if ( n ) {
-				options.limit = n;
+			var results = await plugin.query(ddocView, options);
+
+			if ( results.rows.length == 0 && options.limit == 1) {
+				return;
+			} else if ( results.rows.length == 0) {
+				return [];
+			} else if ( options.limit == 1 ) {
+				var row = results.rows[0];
+				return row.doc || row.value;
+			} else if ( options.include_docs ) {
+				return results.rows.map(x=>x.doc);
+			} else if ( Object.prototype.toString.call(results.rows[0].value) == '[object Object]' ) {
+				return results.rows.map(x=>x.value);
+			} else {
+				return results.rows;
 			}
-
-			if ( m ) {
-				options.start_key = m;
-			}
-
-			return await plugin.tolist('where', 'where', options);
 		}
+
+		this.limit = this.take;
 
 		this.all = this.take;
 
-		this.page = async function(pageNo, pageSize) {
+		this.page = function(pageNo, pageSize) {
 			pageNo = pageNo || 1;
+			pageNo = Number(pageNo);
+
 			pageSize = pageSize || 100;
+			pageSize = Number(pageSize);
 
-			await plugin.upsert(whereMapReduce);
-
-			if ( pageNo > 1 ) {
-				options.skip = pageSize * ( pageNo - 1 );
-			}
-
+			options.skip = pageNo > 1 ? pageSize * ( pageNo - 1 ) : 0;
 			options.limit = pageSize;
+			return this.take();
+		}
 
-			return await plugin.tolist('where', 'where', options);
+		this.scalar = async function() {
+			options.limit = 1;
+			options.include_docs = true;
+			return this.take();
 		}
 	}
 }
 
+exports.filter = function(/*type, [key], [value], [options]*/) {
+	var type, key, value, options;
+
+	for ( let i = 0; i < arguments.length; i++ ) {
+		if ( Object.prototype.toString.call(arguments[i]) == '[object Object]' ) {
+			options = arguments[i];
+		} else {
+			if ( i == 0 ) type = arguments[i];
+						else
+			if ( i == 1 ) key = arguments[i];
+						else
+			if ( i == 2 ) value = arguments[i];
+		}
+	}
+
+	var options = options || {};
+	options.key = [];
+
+	if ( options["include_docs"] !== false )
+		options["include_docs"] = true;
+
+	if (type) options.key.push(type);
+	if (key) options.key.push(key);
+	if (value) options.key.push(value);
+
+	return this.where('where', options);
+}
+
+
+exports.upget = async function(doc) {
+	try { existing = await this.get(doc._id); } catch(err) { var existing; }
+	var existingHash = CryptoJS.MD5(JSON.stringify(existing)).toString();
+
+	var docHash = CryptoJS.MD5(JSON.stringify(doc)).toString();
+
+	if ( docHash == existingHash ) {
+		return existing;
+	} else if ( existing ) {
+		doc._rev = existing._rev;
+
+		await this.save(doc);
+		return await this.get(doc._id);
+	} else {
+		await this.save(doc);
+		return await this.get(doc._id);
+	}
+}
 
 exports.upsert = async function(doc, byPassSingleton = false) {
-	module.upserted = module.upserte || [];
-
 	if ( ! byPassSingleton )  {
+		module.upserted = module.upserted || [];
 		var docHash = CryptoJS.MD5(JSON.stringify(doc)).toString();
-
-		if (module.upserted.includes(docHash))
-			return doc;
-
+		if (module.upserted.includes(docHash)) return doc;
 		module.upserted.push(docHash);
 	}
 
-	try {
-		delete doc._rev;
+	try { var existing = await this.get(doc._id); } catch(err) { var existing; }
 
-		var existing = await this.get(doc._id);
+	if ( existing ) {
 		var rev = existing._rev;
+		delete doc._rev;
 		delete existing._rev;
 
-		if (JSON.stringify(doc) != JSON.stringify(existing)) {
-			doc._rev = rev;
+		var docHash = CryptoJS.MD5(JSON.stringify(doc)).toString();
+		var existingHash = CryptoJS.MD5(JSON.stringify(existing)).toString();
 
-			try {
-				return await this.put(doc);
-			} catch(err) {
-				return err;
-			}
-		} else {
-			return doc;
+		if ( docHash != existingHash ) {
+			doc._rev = rev;			
+			await this.put(doc);
 		}
 
-	} catch(err) {
-		try {
-			delete doc._rev;
-
-			return await this.put(doc)
-		} catch(err) {
-			console.log(err);
-			return err;
-		}
+		return await this.get(doc._id);
+	} else {
+		delete doc._rev;
+		await this.put(doc);
+		return await this.get(doc._id);
 	}
 }
+
+exports.getsert = async function(doc) {
+	try {
+		return await this.get(doc._id);
+	} catch(err) {
+		delete doc._rev;
+
+		await this.save(doc);
+		return await this.get(doc._id);
+	}
+}
+
 
 exports.save = async function(doc) {
 	var doc = await this.standardizeDoc(doc);
@@ -386,25 +528,27 @@ exports.standardizeDoc = async function(doc) {
 	doc.id = Number(parts[1]) || parts[1];
 	doc.modified = new Date();
 
-	try {
-		var meta = await this.get('meta-' + doc.type);
+	if ( doc.type != 'meta' ) {
+		try {
+			var meta = await this.get('meta-' + doc.type);
 
-		var descKey;
+			var descKey;
 
-		for (key in meta) {
-			if ( meta[key].type == "description" ) {
-				var descKey = key;
-				break;
+			for ( var key in meta ) {
+				if ( meta[key].type == "description" ) {
+					var descKey = key;
+					break;
+				}
 			}
+
+			if ( descKey )
+				doc.desc = doc[descKey];
+			else
+				doc.desc = doc.type.toUpperCase() + ': ' + doc.id;
+
+		} catch(err) {
+			doc.desc = doc.type.toLowerCase() + ': ' + doc.id;
 		}
-
-		if ( descKey )
-			doc.desc = doc[descKey];
-		else
-			doc.desc = doc.type.toUpperCase() + ': ' + doc.id;
-
-	} catch(err) {
-		doc.desc = doc.type.toLowerCase() + ': ' + doc.id;
 	}
 
 	return doc;
@@ -425,10 +569,11 @@ exports.storeRevision = async function(doc) {
 	var o = JSON.parse(JSON.stringify(doc));
 	o._id = o._id.replace('-', '@') + '.' + (Number(docRevNo)+1);
 	delete o._rev;
+	delete o._deleted;
 	o.type = null;
 	o.id = null;
 
-	var ret = await this.upsert(o);
+	var ret = await this.upsert(o, true);
 	return ret;
 }
 
