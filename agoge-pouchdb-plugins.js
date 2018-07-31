@@ -177,17 +177,17 @@ exports.maintence = async function(force = false) {
 	console.log('D A T A B A S E  M A I N T E N C E  S T A R T');
 
 	await this.upsert(identityMapReduce);
-	await this.buildViewIndex('identity');
+	await this.buildViewIndex(identityMapReduce);
 
 	await this.upsert(whereMapReduce);
-	await this.buildViewIndex('where');
+	await this.buildViewIndex(whereMapReduce);
 
 	await this.upsert(ftsView);
-	await this.buildViewIndex('fts');
+	await this.buildViewIndex(ftsView);
 
 
 	await this.upsert(listGlobalFields);
-	await this.buildViewIndex('gfields');
+	await this.buildViewIndex(listGlobalFields);
 
 	await this.createMangoIndex(['type']);
 	await this.createMangoIndex(['type', 'desc']);
@@ -321,7 +321,7 @@ exports.createMangoIndex = async function(fields) {
 exports.fts = function(key) {
 	new Promise(async (resolve, reject) => {
 		await this.upsert(ftsView);
-		await this.buildViewIndex('fts');
+		await this.buildViewIndex(ftsView);
 		resolve();
 	});
 
@@ -330,7 +330,7 @@ exports.fts = function(key) {
 
 exports.identity = async function(type) {
 	await this.upsert(identityMapReduce);
-	await this.buildViewIndex('identity');
+	await this.buildViewIndex(identityMapReduce);
 
 	var ret = await this.query('identity/identity', {key: type, group: true});
 
@@ -347,7 +347,7 @@ exports.identity = async function(type) {
 exports.where = function(ddocView, options) {
 	new Promise(async (resolve, reject) => {
 		await this.upsert(whereMapReduce);
-		await this.buildViewIndex('where');
+		await this.buildViewIndex(whereMapReduce);
 	});
 
 	var options = options || {};
