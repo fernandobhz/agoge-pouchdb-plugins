@@ -208,15 +208,23 @@ exports.maintence = async function(force = false) {
 }
 
 
-exports.buildViewIndex = async function(name) {
+exports.buildViewIndex = async function(obj) {
+	var name = obj._id.split('/').pop();
+
 	while (true) {
 		try {
 			await this.query(name, {key: 0, limit: 1});
 			console.log(name + '  index build successfully');
 			break;
 		} catch(err) {
-			console.log('couchdb is busy right now, delaying index building of: '  + name);
-			await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*10*Math.random())});
+			if ( err.status == 404) {
+				console.log('couchdb is missing the index, upserting: ' + name);
+				await this.upsert(obj);
+				await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*10*Math.random())});
+			} else {
+				console.log('couchdb is busy right now, delaying index building of: '  + name);
+				await new Promise((resolve, reject)=>{setTimeout(resolve, 1000*60*10*Math.random())});
+			}
 		}
 	}
 }
@@ -464,7 +472,7 @@ exports.upsert = async function(doc, byPassSingleton = false) {
 		var existingHash = CryptoJS.MD5(JSON.stringify(existing)).toString();
 
 		if ( docHash != existingHash ) {
-			doc._rev = rev;			
+			doc._rev = rev;
 			await this.put(doc);
 		}
 
